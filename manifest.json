@@ -1,8 +1,9 @@
 {
-  "name": "Bot's Browser",
+  "display_name": "Bot's Browser",
   "version": "1.0.0",
   "author": "Your Name",
-  "description": "แสดงหน้าจอ UI จำลองว่าบอทกำลังค้นหาอะไรอยู่ โดยอิงจากบทสนทนาล่าสุด",
-  "script": "index.js",
-  "style": "style.css"
+  "homePage": "https://github.com/yourname/sillytavern-bots-browser",
+  "js": "index.js",
+  "css": "style.css",
+  "loading_order": 10
 }

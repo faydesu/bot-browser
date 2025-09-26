@@ -1,0 +1,8 @@
+{
+  "name": "Bot's Browser",
+  "version": "1.0.0",
+  "author": "Your Name",
+  "description": "แสดงหน้าจอ UI จำลองว่าบอทกำลังค้นหาอะไรอยู่ โดยอิงจากบทสนทนาล่าสุด",
+  "script": "index.js",
+  "style": "style.css"
+}

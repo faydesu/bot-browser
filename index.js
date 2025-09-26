@@ -1,10 +1,15 @@
-// Bot's Browser – SillyTavern UI Extension (FULL)
-// - เพิ่มปุ่มบน toolbar ถ้าเจอ host
-// - ถ้าไม่เจอ toolbar จะมีปุ่มลอย (FAB) ขวาล่างเป็น fallback
-// - เปิด overlay หน้าจอโทรศัพท์ + รายการ "ประวัติการค้นหา" จำลองจากแชทล่าสุด
+// Bot's Browser – SAFE MOUNT VERSION
+// - โชว์ปุ่มลอย (FAB) แน่นอนภายใน ~1 วินาที
+// - พยายามแปะบน toolbar ถ้าพบ host ภายหลัง (ใช้ MutationObserver)
+// - กด Alt+B เพื่อเปิด/ปิด ได้เสมอ
+// - ไม่มีการพึ่งพา DOM เฉพาะธีมตั้งแต่เริ่ม (ลดโอกาสไม่ขึ้นปุ่ม)
 
 (function () {
-  // -------------------- ค่า mock สำหรับค้นหา --------------------
+  // ===================== CONFIG =====================
+  const LOG = true; // ตั้ง true เพื่อดู log ใน Console
+  const HOTKEY = { altKey: true, key: "b" }; // Alt+B toggle overlay
+
+  // ===================== DATA =====================
   const searchTopics = {
     date: {
       keywords: ['เดท', 'นัด', 'เที่ยว', 'ดูหนัง', 'กินข้าว', 'เจอกัน'],
@@ -35,6 +40,192 @@
         'วิธีจัดกระเป๋าเดินทางให้เบาที่สุด',
         'เกาะสวยน้ำใสคนไม่เยอะ'
       ]
+    },
+    default: {
+      keywords: [],
+      queries: [
+        'วิธีทำให้แชทสนุกไม่น่าเบื่อ',
+        'คำคมความรักบาดใจ',
+        'เรื่องตลกสั้นๆ',
+        'วิธีพูดให้กำลังใจคนที่เหนื่อย',
+        'เพลงฟังสบายๆ'
+      ]
+    }
+  };
+
+  // ===================== UTIL =====================
+  const qs = (s, r = document) => r.querySelector(s);
+  const log = (...a) => LOG && console.log("[BotBrowser]", ...a);
+  const warn = (...a) => LOG && console.warn("[BotBrowser]", ...a);
+
+  // ===================== OVERLAY =====================
+  function ensureOverlay() {
+    if (qs('#bot-search-overlay')) return;
+
+    const overlay = document.createElement('div');
+    overlay.id = 'bot-search-overlay';
+    overlay.innerHTML = `
+      <div class="phone-screen" role="dialog" aria-modal="true" aria-label="Bot Browser">
+        <div class="phone-header">
+          <span class="title">โทรศัพท์ของ หลี่ เจียห่าว</span>
+          <button class="close-btn" aria-label="Close" title="Close">×</button>
+        </div>
+        <div class="browser-ui">
+          <div class="browser-header"><span class="back-arrow">ㄑ</span><span>เบราว์เซอร์</span></div>
+          <div class="browser-icon-container">
+            <div class="browser-icon"><i class="fa-regular fa-compass compass"></i></div>
+          </div>
+          <div class="search-bar"><i class="fa-solid fa-magnifying-glass"></i><span>ประวัติการค้นหา</span></div>
+          <div class="search-history-list" id="bot-search-history"></div>
+        </div>
+      </div>
+    `;
+    document.body.appendChild(overlay);
+
+    overlay.addEventListener('click', (e) => { if (e.target.id === 'bot-search-overlay') hideOverlay(); });
+    overlay.querySelector('.close-btn').addEventListener('click', hideOverlay);
+    document.addEventListener('keydown', (e) => { if (e.key === 'Escape') hideOverlay(); });
+
+    log("Overlay created");
+  }
+
+  function hideOverlay() {
+    const ov = qs('#bot-search-overlay');
+    if (ov) ov.style.display = 'none';
+  }
+
+  function renderAndShowOverlay() {
+    ensureOverlay();
+
+    // ดึงแชทจาก SillyTavern ถ้ามี; ถ้าไม่มีจะไม่พัง
+    let chatText = "";
+    try {
+      const ctx = (typeof SillyTavern !== "undefined") ? SillyTavern.getContext() : null;
+      const last4 = ctx?.chat ? ctx.chat.slice(-4) : [];
+      chatText = last4.map(m => m?.mes || '').join(' ');
+    } catch {
+      // เงียบ ๆ ก็ได้
+    }
+
+    let key = 'default';
+    for (const k of Object.keys(searchTopics)) {
+      if (k === 'default') continue;
+      if (searchTopics[k].keywords.some(word => chatText.includes(word))) { key = k; break; }
+    }
+
+    const list = qs('#bot-search-history');
+    if (list) {
+      list.innerHTML = '';
+      for (const q of searchTopics[key].queries) {
+        const item = document.createElement('div');
+        item.className = 'search-history-item';
+        item.textContent = q;
+        list.appendChild(item);
+      }
+    }
+
+    const ov = qs('#bot-search-overlay');
+    if (ov) ov.style.display = 'flex';
+  }
+
+  // ===================== BUTTONS =====================
+  function mountFAB() {
+    if (qs('#bot-browser-fab')) return;
+    const fab = document.createElement('button');
+    fab.id = 'bot-browser-fab';
+    fab.title = 'ดูเบราว์เซอร์ของบอท (Alt+B)';
+    fab.textContent = '📱';
+    Object.assign(fab.style, {
+      position: 'fixed',
+      right: '16px',
+      bottom: '96px',
+      width: '48px',
+      height: '48px',
+      borderRadius: '24px',
+      border: 'none',
+      fontSize: '22px',
+      cursor: 'pointer',
+      zIndex: 2000,
+      background: '#fff',
+      boxShadow: '0 6px 18px rgba(0,0,0,.25)'
+    });
+    fab.addEventListener('click', renderAndShowOverlay);
+    document.body.appendChild(fab);
+    log("FAB mounted");
+  }
+
+  function findToolbarHost() {
+    // ครอบคลุมหลายธีม/เวอร์ชัน
+    const candidates = [
+      '#extensions_buttons',
+      '#extensions-buttons',
+      '.extensions-buttons',
+      '#quick_extensions',
+      '#extensions_panel',
+      '#top_bar .extensions',
+      '#navbar .extensions'
+    ];
+    for (const sel of candidates) {
+      const el = qs(sel);
+      if (el) return el;
+    }
+    return null;
+  }
+
+  function mountToolbarButton() {
+    if (qs('#bot-browser-button')) return;
+
+    const host = findToolbarHost();
+    if (!host) return warn("Toolbar not found yet");
+
+    const btn = document.createElement('div');
+    btn.id = 'bot-browser-button';
+    btn.className = 'fa-solid fa-mobile-screen-button custom-icon';
+    btn.title = 'ดูเบราว์เซอร์ของบอท (Alt+B)';
+    btn.setAttribute('role', 'button');
+    btn.tabIndex = 0;
+    btn.addEventListener('click', renderAndShowOverlay);
+    btn.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); renderAndShowOverlay(); }
+    });
+    host.appendChild(btn);
+    log("Toolbar button mounted on", host);
+  }
+
+  // ===================== BOOT =====================
+  // 1) สร้าง FAB แน่นอนหลังโหลดหน้า (กันพลาด)
+  if (document.readyState !== 'loading') setTimeout(mountFAB, 800);
+  else document.addEventListener('DOMContentLoaded', () => setTimeout(mountFAB, 800));
+
+  // 2) พยายามแปะบน toolbar ซ้ำ ๆ + ใช้ MutationObserver จนกว่าจะเจอ
+  function tryMountToolbar(retry = 15) {
+    mountToolbarButton();
+    if (!qs('#bot-browser-button') && retry > 0) {
+      setTimeout(() => tryMountToolbar(retry - 1), 500);
+    }
+  }
+  tryMountToolbar();
+
+  const mo = new MutationObserver(() => {
+    if (!qs('#bot-browser-button')) mountToolbarButton();
+  });
+  mo.observe(document.documentElement, { childList: true, subtree: true });
+
+  // 3) Hotkey Alt+B
+  document.addEventListener('keydown', (e) => {
+    const ok = (!!e.altKey === !!HOTKEY.altKey) &&
+               (!!e.ctrlKey === !!HOTKEY.ctrlKey) &&
+               (!!e.shiftKey === !!HOTKEY.shiftKey) &&
+               (e.key.toLowerCase() === HOTKEY.key);
+    if (ok) {
+      const ov = qs('#bot-search-overlay');
+      if (!ov || ov.style.display === 'none' || !ov.style.display) renderAndShowOverlay();
+      else hideOverlay();
+    }
+  });
+
+  log("Extension loaded");
+})();      ]
     },
     default: {
       keywords: [],

@@ -1,8 +1,10 @@
-// Bot's Browser – SillyTavern UI Extension
-// สร้างปุ่มบนทูลบาร์ เปิด overlay หน้าจอโทรศัพท์ + ประวัติการค้นหา (จำลองจากบริบทแชท)
+// Bot's Browser – SillyTavern UI Extension (FULL)
+// - เพิ่มปุ่มบน toolbar ถ้าเจอ host
+// - ถ้าไม่เจอ toolbar จะมีปุ่มลอย (FAB) ขวาล่างเป็น fallback
+// - เปิด overlay หน้าจอโทรศัพท์ + รายการ "ประวัติการค้นหา" จำลองจากแชทล่าสุด
 
 (function () {
-  // ---- Search topics (ของคุณ) ----
+  // -------------------- ค่า mock สำหรับค้นหา --------------------
   const searchTopics = {
     date: {
       keywords: ['เดท', 'นัด', 'เที่ยว', 'ดูหนัง', 'กินข้าว', 'เจอกัน'],
@@ -35,6 +37,175 @@
       ]
     },
     default: {
+      keywords: [],
+      queries: [
+        'วิธีทำให้แชทสนุกไม่น่าเบื่อ',
+        'คำคมความรักบาดใจ',
+        'เรื่องตลกสั้นๆ',
+        'วิธีพูดให้กำลังใจคนที่เหนื่อย',
+        'เพลงฟังสบายๆ'
+      ]
+    }
+  };
+
+  // -------------------- Helper --------------------
+  const qs = (s, r = document) => r.querySelector(s);
+
+  // -------------------- UI: overlay --------------------
+  function createPhoneUI() {
+    if (qs('#bot-search-overlay')) return;
+
+    const overlay = document.createElement('div');
+    overlay.id = 'bot-search-overlay';
+    overlay.innerHTML = `
+      <div class="phone-screen" role="dialog" aria-modal="true" aria-label="Bot Browser">
+        <div class="phone-header">
+          <span class="title">โทรศัพท์ของ หลี่ เจียห่าว</span>
+          <button class="close-btn" aria-label="Close" title="Close">×</button>
+        </div>
+        <div class="browser-ui">
+          <div class="browser-header">
+            <span class="back-arrow">ㄑ</span>
+            <span>เบราว์เซอร์</span>
+          </div>
+          <div class="browser-icon-container">
+            <div class="browser-icon">
+              <i class="fa-regular fa-compass compass"></i>
+            </div>
+          </div>
+          <div class="search-bar">
+            <i class="fa-solid fa-magnifying-glass"></i>
+            <span>ประวัติการค้นหา</span>
+          </div>
+          <div class="search-history-list" id="bot-search-history"></div>
+        </div>
+      </div>
+    `;
+    document.body.appendChild(overlay);
+
+    overlay.addEventListener('click', (e) => {
+      if (e.target.id === 'bot-search-overlay') hidePhoneUI();
+    });
+    overlay.querySelector('.close-btn').addEventListener('click', hidePhoneUI);
+    document.addEventListener('keydown', (e) => { if (e.key === 'Escape') hidePhoneUI(); });
+  }
+
+  function hidePhoneUI() {
+    const ov = qs('#bot-search-overlay');
+    if (ov) ov.style.display = 'none';
+  }
+
+  function showPhoneUI() {
+    const { chat } = SillyTavern.getContext();
+    const text = (chat || []).slice(-4).map(m => m?.mes || '').join(' ');
+
+    let key = 'default';
+    for (const k of Object.keys(searchTopics)) {
+      if (k === 'default') continue;
+      if (searchTopics[k].keywords.some(word => text.includes(word))) { key = k; break; }
+    }
+
+    const list = qs('#bot-search-history');
+    if (list) {
+      list.innerHTML = '';
+      for (const q of searchTopics[key].queries) {
+        const item = document.createElement('div');
+        item.className = 'search-history-item';
+        item.textContent = q;
+        list.appendChild(item);
+      }
+    }
+
+    const ov = qs('#bot-search-overlay');
+    if (ov) ov.style.display = 'flex';
+  }
+
+  // -------------------- Mount buttons --------------------
+  function findToolbarHost() {
+    const candidates = [
+      '#extensions_buttons',
+      '#extensions-buttons',
+      '.extensions-buttons',
+      '#quick_extensions',
+      '#extensions_panel',
+      '#top_bar .extensions',
+      '#navbar .extensions'
+    ];
+    for (const sel of candidates) {
+      const el = document.querySelector(sel);
+      if (el) return el;
+    }
+    return null;
+  }
+
+  function mountFloatingButton() {
+    if (qs('#bot-browser-fab')) return;
+    const fab = document.createElement('button');
+    fab.id = 'bot-browser-fab';
+    fab.title = 'ดูเบราว์เซอร์ของบอท';
+    fab.textContent = '📱';
+    Object.assign(fab.style, {
+      position: 'fixed',
+      right: '16px',
+      bottom: '96px',
+      width: '48px',
+      height: '48px',
+      borderRadius: '24px',
+      border: 'none',
+      fontSize: '22px',
+      cursor: 'pointer',
+      zIndex: 2000,
+      background: '#fff',
+      boxShadow: '0 6px 18px rgba(0,0,0,.25)'
+    });
+    fab.addEventListener('click', showPhoneUI);
+    document.body.appendChild(fab);
+  }
+
+  function mountToolbarButton() {
+    if (qs('#bot-browser-button')) return;
+
+    const host = findToolbarHost();
+    if (host) {
+      const btn = document.createElement('div');
+      btn.id = 'bot-browser-button';
+      btn.className = 'fa-solid fa-mobile-screen-button custom-icon';
+      btn.title = 'ดูเบราว์เซอร์ของบอท';
+      btn.setAttribute('role', 'button');
+      btn.tabIndex = 0;
+      btn.addEventListener('click', showPhoneUI);
+      btn.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); showPhoneUI(); }
+      });
+      host.appendChild(btn);
+      console.log('[BotBrowser] Mounted on toolbar:', host);
+    } else {
+      console.warn('[BotBrowser] Toolbar not found, mounting FAB instead');
+      mountFloatingButton();
+    }
+  }
+
+  function tryMountRepeated(times = 10, delay = 400) {
+    const run = () => {
+      try { createPhoneUI(); mountToolbarButton(); } catch (e) { console.error(e); }
+      const ready = qs('#bot-browser-button') || qs('#bot-browser-fab');
+      if (!ready && --times > 0) setTimeout(run, delay);
+    };
+    run();
+  }
+
+  // -------------------- Boot --------------------
+  try {
+    const { eventSource, event_types } = SillyTavern.getContext();
+    eventSource.on(event_types.APP_READY, () => tryMountRepeated());
+  } catch (e) {
+    // กรณีโหลดก่อน ST พร้อม: ลองเอง
+    console.warn('[BotBrowser] getContext not ready yet; using fallback mount', e);
+  }
+  if (document.readyState !== 'loading') setTimeout(() => tryMountRepeated(), 0);
+
+  console.log("[BotBrowser] extension loaded");
+})();    default: {
       keywords: [],
       queries: [
         'วิธีทำให้แชทสนุกไม่น่าเบื่อ',
